@@ -1,0 +1,82 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: whatsapp-baileys-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3010
+    volumes:
+      - ./backend/auth_sessions:/usr/src/app/auth_sessions
+      - ./logs/backend:/usr/src/app/logs
+    networks:
+      - whatsapp-network
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.whatsapp-baileys-backend.rule=Host(`api-baileys.archcode.space`)"
+      - "traefik.http.routers.whatsapp-baileys-backend.entrypoints=websecure"
+      - "traefik.http.routers.whatsapp-baileys-backend.tls=true"
+      - "traefik.http.routers.whatsapp-baileys-backend.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.whatsapp-baileys-backend.loadbalancer.server.port=3010"
+      - "traefik.http.middlewares.baileys-backend-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS,PATCH"
+      - "traefik.http.middlewares.baileys-backend-cors.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.baileys-backend-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.routers.whatsapp-baileys-backend.middlewares=baileys-backend-cors@docker"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3010"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: https://api-baileys.archcode.space
+    container_name: whatsapp-baileys-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3011
+      VITE_API_URL: https://api-baileys.archcode.space
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - whatsapp-network
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.whatsapp-baileys-frontend.rule=Host(`baileys.archcode.space`)"
+      - "traefik.http.routers.whatsapp-baileys-frontend.entrypoints=websecure"
+      - "traefik.http.routers.whatsapp-baileys-frontend.tls=true"
+      - "traefik.http.routers.whatsapp-baileys-frontend.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.whatsapp-baileys-frontend.loadbalancer.server.port=3011"
+      - "traefik.http.middlewares.whatsapp-baileys-frontend-headers.headers.sslredirect=true"
+      - "traefik.http.middlewares.whatsapp-baileys-frontend-headers.headers.stsseconds=31536000"
+      - "traefik.http.middlewares.whatsapp-baileys-frontend-headers.headers.stsincludesubdomains=true"
+      - "traefik.http.middlewares.whatsapp-baileys-frontend-headers.headers.stspreload=true"
+      - "traefik.http.middlewares.whatsapp-baileys-frontend-headers.headers.browserxssfilter=true"
+      - "traefik.http.middlewares.whatsapp-baileys-frontend-headers.headers.contenttypenosniff=true"
+      - "traefik.http.routers.whatsapp-baileys-frontend.middlewares=whatsapp-baileys-frontend-headers@docker"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3011"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+networks:
+  whatsapp-network:
+    driver: bridge
+  traefik-public:
+    external: true
