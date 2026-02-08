@@ -101,17 +101,20 @@ export class WhatsAppController {
     @Post('sessions/:sessionId/send')
     async sendMessage(
         @Param('sessionId') sessionId: string,
-        @Body() body: { phoneNumber: string; message: string },
+        @Body() body: { to: string; type: 'text' | 'image' | 'video' | 'audio' | 'document'; content?: string; mediaUrl?: string; fileName?: string },
     ) {
         try {
             await this.whatsappService.sendMessage(
                 sessionId,
-                body.phoneNumber,
-                body.message,
+                body.to,
+                body.type,
+                body.content,
+                body.mediaUrl,
+                body.fileName,
             );
             return {
                 success: true,
-                message: 'Message sent successfully',
+                message: `${body.type} message sent successfully`,
             };
         } catch (error) {
             throw new HttpException(

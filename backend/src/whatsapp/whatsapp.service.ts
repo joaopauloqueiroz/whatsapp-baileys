@@ -191,8 +191,11 @@ export class WhatsAppService {
 
     async sendMessage(
         sessionId: string,
-        phoneNumber: string,
-        message: string,
+        to: string,
+        type: 'text' | 'image' | 'video' | 'audio' | 'document',
+        content?: string,
+        mediaUrl?: string,
+        fileName?: string,
     ): Promise<void> {
         const sock = this.sessions.get(sessionId);
         if (!sock) {
@@ -204,12 +207,94 @@ export class WhatsAppService {
             throw new Error(`Session ${sessionId} is not connected`);
         }
 
-        // Formatar número de telefone
-        const jid = phoneNumber.includes('@')
-            ? phoneNumber
-            : `${phoneNumber}@s.whatsapp.net`;
+        // Formatar JID (suporta grupos e contatos)
+        let jid: string;
+        if (to.includes('@')) {
+            jid = to; // Já está formatado
+        } else if (to.endsWith('@g.us')) {
+            jid = to; // É um grupo
+        } else {
+            // É um número de telefone
+            jid = `${to}@s.whatsapp.net`;
+        }
 
-        await sock.sendMessage(jid, { text: message });
-        this.logger.log(`[${sessionId}] Message sent to ${phoneNumber}`);
+        try {
+            switch (type) {
+                case 'text':
+                    if (!content) {
+                        throw new Error('Content is required for text messages');
+                    }
+                    await sock.sendMessage(jid, { text: content });
+                    break;
+
+                case 'image':
+                    if (!mediaUrl) {
+                        throw new Error('Media URL is required for image messages');
+                    }
+                    const imageBuffer = await this.fetchMedia(mediaUrl);
+                    await sock.sendMessage(jid, {
+                        image: imageBuffer,
+                        caption: content || '',
+                    });
+                    break;
+
+                case 'video':
+                    if (!mediaUrl) {
+                        throw new Error('Media URL is required for video messages');
+                    }
+                    const videoBuffer = await this.fetchMedia(mediaUrl);
+                    await sock.sendMessage(jid, {
+                        video: videoBuffer,
+                        caption: content || '',
+                    });
+                    break;
+
+                case 'audio':
+                    if (!mediaUrl) {
+                        throw new Error('Media URL is required for audio messages');
+                    }
+                    const audioBuffer = await this.fetchMedia(mediaUrl);
+                    await sock.sendMessage(jid, {
+                        audio: audioBuffer,
+                        mimetype: 'audio/mp4',
+                    });
+                    break;
+
+                case 'document':
+                    if (!mediaUrl) {
+                        throw new Error('Media URL is required for document messages');
+                    }
+                    const docBuffer = await this.fetchMedia(mediaUrl);
+                    await sock.sendMessage(jid, {
+                        document: docBuffer,
+                        mimetype: 'application/pdf',
+                        fileName: fileName || 'document.pdf',
+                        caption: content || '',
+                    });
+                    break;
+
+                default:
+                    throw new Error(`Unsupported message type: ${type}`);
+            }
+
+            this.logger.log(`[${sessionId}] ${type} message sent to ${to}`);
+        } catch (error) {
+            this.logger.error(`[${sessionId}] Error sending message: ${error.message}`);
+            throw error;
+        }
+    }
+
+    private async fetchMedia(url: string): Promise<Buffer> {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch media: ${response.statusText}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            return Buffer.from(arrayBuffer);
+        } catch (error) {
+            this.logger.error(`Error fetching media from ${url}: ${error.message}`);
+            throw new Error(`Failed to download media: ${error.message}`);
+        }
     }
 }
