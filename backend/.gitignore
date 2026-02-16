@@ -28,3 +28,4 @@ backend/auth_sessions
 
 frontend/dist
 frontend/node_modules
+/generated/prisma

@@ -9,6 +9,8 @@ import makeWASocket, {
 import { Boom } from '@hapi/boom';
 import * as fs from 'fs';
 import * as path from 'path';
+import axios from 'axios';
+import { WebhookService } from '../webhook/webhook.service';
 
 export interface SessionInfo {
     id: string;
@@ -25,7 +27,7 @@ export class WhatsAppService {
     private sessionInfos: Map<string, SessionInfo> = new Map();
     private readonly authDir = path.join(process.cwd(), 'auth_sessions');
 
-    constructor() {
+    constructor(private readonly webhookService: WebhookService) {
         // Criar diretório de autenticação se não existir
         if (!fs.existsSync(this.authDir)) {
             fs.mkdirSync(this.authDir, { recursive: true });
@@ -77,11 +79,30 @@ export class WhatsAppService {
 
         sock.ev.on('creds.update', saveCreds);
 
-        sock.ev.on('messages.upsert', async ({ messages }) => {
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
             this.logger.log(
                 `[${sessionId}] Received ${messages.length} message(s)`,
             );
-            // Aqui você pode processar as mensagens recebidas
+
+            // Forward to webhooks
+            try {
+                const webhooks = await this.webhookService.findBySession(sessionId);
+                for (const webhook of webhooks) {
+                    const events = JSON.parse(webhook.events) as string[];
+                    if (events.includes('messages.upsert')) {
+                        axios.post(webhook.url, {
+                            sessionId,
+                            event: 'messages.upsert',
+                            type,
+                            data: messages,
+                        }).catch(err => {
+                            this.logger.error(`Error sending webhook to ${webhook.url}: ${err.message}`);
+                        });
+                    }
+                }
+            } catch (error) {
+                this.logger.error(`Error processing webhooks for ${sessionId}: ${error.message}`);
+            }
         });
 
         this.sessions.set(sessionId, sock);

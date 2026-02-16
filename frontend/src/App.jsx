@@ -4,23 +4,82 @@ import './App.css';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [authData, setAuthData] = useState({ email: '', password: '' });
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [showSendMessageModal, setShowSendMessageModal] = useState(false);
+  const [showWebhookModal, setShowWebhookModal] = useState(false);
   const [newSessionId, setNewSessionId] = useState('');
   const [selectedSession, setSelectedSession] = useState(null);
   const [messageData, setMessageData] = useState({ phoneNumber: '', message: '' });
+  const [webhooks, setWebhooks] = useState([]);
+  const [newWebhook, setNewWebhook] = useState({ url: '', sessionId: '', events: ['messages.upsert'] });
 
   useEffect(() => {
-    fetchSessions();
-    const interval = setInterval(fetchSessions, 3000); // Atualizar a cada 3 segundos
-    return () => clearInterval(interval);
-  }, []);
+    if (token) {
+      fetchSessions();
+      fetchWebhooks();
+      const interval = setInterval(() => {
+        fetchSessions();
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [token]);
+
+  const authFetch = async (url, options = {}) => {
+    const headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`,
+    };
+    const response = await fetch(url, { ...options, headers });
+    if (response.status === 401) {
+      handleLogout();
+      throw new Error('Unauthorized');
+    }
+    return response;
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const endpoint = authMode === 'login' ? 'login' : 'register';
+      const response = await fetch(`${API_URL}/auth/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authData),
+      });
+      const data = await response.json();
+      if (data.access_token) {
+        localStorage.setItem('token', data.access_token);
+        setToken(data.access_token);
+      } else if (authMode === 'register' && data.id) {
+        alert('Registrado com sucesso! Agora faça login.');
+        setAuthMode('login');
+      } else {
+        alert(data.message || 'Erro na autenticação');
+      }
+    } catch (error) {
+      console.error('Auth error:', error);
+      alert('Erro ao conectar com o servidor');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setSessions([]);
+    setWebhooks([]);
+  };
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch(`${API_URL}/whatsapp/sessions`);
+      const response = await authFetch(`${API_URL}/whatsapp/sessions`);
       const data = await response.json();
       if (data.success) {
         setSessions(data.data);
@@ -30,12 +89,22 @@ function App() {
     }
   };
 
+  const fetchWebhooks = async () => {
+    try {
+      const response = await authFetch(`${API_URL}/webhooks`);
+      const data = await response.json();
+      setWebhooks(data || []);
+    } catch (error) {
+      console.error('Error fetching webhooks:', error);
+    }
+  };
+
   const createSession = async () => {
     if (!newSessionId.trim()) return;
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/whatsapp/sessions/${newSessionId}`, {
+      const response = await authFetch(`${API_URL}/whatsapp/sessions/${newSessionId}`, {
         method: 'POST',
       });
       const data = await response.json();
@@ -54,7 +123,7 @@ function App() {
   const disconnectSession = async (sessionId) => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/whatsapp/sessions/${sessionId}/disconnect`, {
+      const response = await authFetch(`${API_URL}/whatsapp/sessions/${sessionId}/disconnect`, {
         method: 'DELETE',
       });
       const data = await response.json();
@@ -73,7 +142,7 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/whatsapp/sessions/${sessionId}`, {
+      const response = await authFetch(`${API_URL}/whatsapp/sessions/${sessionId}`, {
         method: 'DELETE',
       });
       const data = await response.json();
@@ -87,12 +156,43 @@ function App() {
     }
   };
 
+  const createWebhook = async () => {
+    if (!newWebhook.url || !newWebhook.sessionId) return;
+    setLoading(true);
+    try {
+      const response = await authFetch(`${API_URL}/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newWebhook),
+      });
+      if (response.ok) {
+        setShowWebhookModal(false);
+        setNewWebhook({ url: '', sessionId: '', events: ['messages.upsert'] });
+        fetchWebhooks();
+      }
+    } catch (error) {
+      console.error('Error creating webhook:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteWebhook = async (id) => {
+    if (!confirm('Excluir este webhook?')) return;
+    try {
+      await authFetch(`${API_URL}/webhooks/${id}`, { method: 'DELETE' });
+      fetchWebhooks();
+    } catch (error) {
+      console.error('Error deleting webhook:', error);
+    }
+  };
+
   const sendMessage = async () => {
     if (!messageData.phoneNumber || !messageData.message) return;
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/whatsapp/sessions/${selectedSession}/send`, {
+      const response = await authFetch(`${API_URL}/whatsapp/sessions/${selectedSession}/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -128,17 +228,74 @@ function App() {
     }
   };
 
+  if (!token) {
+    return (
+      <div className="app flex items-center justify-center" style={{ minHeight: '100vh' }}>
+        <div className="card" style={{ width: '400px' }}>
+          <div className="logo text-center mb-4">
+            <span className="logo-icon">💬</span>
+            <h2 className="mt-2">WhatsApp Manager</h2>
+          </div>
+          <form onSubmit={handleLogin}>
+            <div className="input-group">
+              <label className="input-label">E-mail</label>
+              <input
+                type="email"
+                className="input"
+                required
+                value={authData.email}
+                onChange={(e) => setAuthData({ ...authData, email: e.target.value })}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Senha</label>
+              <input
+                type="password"
+                className="input"
+                required
+                value={authData.password}
+                onChange={(e) => setAuthData({ ...authData, password: e.target.value })}
+              />
+            </div>
+            <button className="btn btn-primary w-full" type="submit" disabled={loading}>
+              {loading ? '⏳ Processando...' : authMode === 'login' ? 'Entrar' : 'Registrar'}
+            </button>
+            <p className="text-center mt-4">
+              {authMode === 'login' ? 'Não tem conta?' : 'Já tem conta?'}
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', marginLeft: '5px' }}
+              >
+                {authMode === 'login' ? 'Registre-se' : 'Faça login'}
+              </button>
+            </p>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="header">
         <div className="header-content">
           <div className="logo">
             <span className="logo-icon">💬</span>
-            <span>WhatsApp Multi-Session Manager</span>
+            <span>WhatsApp Manager</span>
           </div>
-          <button className="btn btn-primary" onClick={() => setShowNewSessionModal(true)}>
-            ➕ Nova Sessão
-          </button>
+          <div className="flex gap-2">
+            <button className="btn btn-secondary" onClick={() => setShowWebhookModal(true)}>
+              🔗 Webhooks
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowNewSessionModal(true)}>
+              ➕ Nova Sessão
+            </button>
+            <button className="btn btn-danger" onClick={handleLogout}>
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -273,9 +430,7 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Enviar Mensagem - {selectedSession}</h3>
-              <button className="modal-close" onClick={() => setShowSendMessageModal(false)}>
-                ✕
-              </button>
+              <button className="modal-close" onClick={() => setShowSendMessageModal(false)}>✕</button>
             </div>
             <div className="input-group">
               <label className="input-label">Número de Telefone</label>
@@ -312,6 +467,76 @@ function App() {
               >
                 Cancelar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Webhooks */}
+      {showWebhookModal && (
+        <div className="modal-overlay" onClick={() => setShowWebhookModal(false)}>
+          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Gerenciar Webhooks</h3>
+              <button className="modal-close" onClick={() => setShowWebhookModal(false)}>✕</button>
+            </div>
+
+            <div className="webhook-form card mb-4">
+              <h4>Novo Webhook</h4>
+              <div className="grid grid-2">
+                <div className="input-group">
+                  <label className="input-label">URL</label>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="https://..."
+                    value={newWebhook.url}
+                    onChange={(e) => setNewWebhook({ ...newWebhook, url: e.target.value })}
+                  />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Sessão</label>
+                  <select
+                    className="input"
+                    value={newWebhook.sessionId}
+                    onChange={(e) => setNewWebhook({ ...newWebhook, sessionId: e.target.value })}
+                  >
+                    <option value="">Selecione uma sessão</option>
+                    {sessions.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}
+                  </select>
+                </div>
+              </div>
+              <button className="btn btn-primary w-full mt-2" onClick={createWebhook} disabled={loading}>
+                Adicionar Webhook
+              </button>
+            </div>
+
+            <div className="webhook-list">
+              <h4>Webhooks Ativos</h4>
+              {webhooks.length === 0 ? (
+                <p className="text-muted">Nenhum webhook cadastrado.</p>
+              ) : (
+                <table className="w-full text-left mt-2">
+                  <thead>
+                    <tr>
+                      <th>URL</th>
+                      <th>Sessão</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {webhooks.map(wh => (
+                      <tr key={wh.id}>
+                        <td>{wh.url}</td>
+                        <td>{wh.sessionId}</td>
+                        <td>
+                          <button className="btn-icon text-danger" onClick={() => deleteWebhook(wh.id)}>🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

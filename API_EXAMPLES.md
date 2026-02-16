@@ -1,17 +1,73 @@
-# API de Envio de Mensagens WhatsApp
+# API do Servidor WhatsApp Baileys
 
-## Endpoint
+## Autenticação
 
+Todos os endpoints da API (exceto registro e login) agora são protegidos por JWT. Você deve incluir o token no cabeçalho `Authorization`.
+
+### 1. Registro de Usuário
+```bash
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "yourpassword123"
+  }'
+```
+
+### 2. Login
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "yourpassword123"
+  }'
+```
+*Resposta:* `{"access_token": "eyJhbG..."}`
+
+---
+
+## Gerenciamento de Webhooks
+
+### 1. Registrar um Webhook
+Cadastra uma URL para receber eventos de uma sessão específica.
+```bash
+curl -X POST http://localhost:3000/webhooks \
+  -H "Authorization: Bearer <SEU_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://seu-servidor.com/webhook",
+    "sessionId": "minha-sessao",
+    "events": ["messages.upsert"]
+  }'
+```
+
+### 2. Listar Webhooks
+```bash
+curl -X GET http://localhost:3000/webhooks \
+  -H "Authorization: Bearer <SEU_TOKEN>"
+```
+
+### 3. Excluir Webhook
+```bash
+curl -X DELETE http://localhost:3000/webhooks/:id \
+  -H "Authorization: Bearer <SEU_TOKEN>"
+```
+
+---
+
+## Envio de Mensagens
+
+### Endpoint
 ```
 POST /whatsapp/sessions/:sessionId/send
 ```
+**Cabeçalho Obrigatório:** `Authorization: Bearer <SEU_TOKEN>`
 
-## Parâmetros
-
+### Parâmetros
 - **sessionId** (path): ID da sessão do WhatsApp que você quer usar
 
-## Body (JSON)
-
+### Body (JSON)
 ```json
 {
   "to": "string",           // Número de telefone ou ID do grupo
@@ -22,88 +78,38 @@ POST /whatsapp/sessions/:sessionId/send
 }
 ```
 
-## Exemplos de Uso
-
-### 1. Enviar Mensagem de Texto
-
+### Exemplo de Uso
 ```bash
 curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao/send \
+  -H "Authorization: Bearer <SEU_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
     "to": "5511999999999",
     "type": "text",
-    "content": "Olá! Esta é uma mensagem de teste."
+    "content": "Olá! Esta é uma mensagem de teste protegida."
   }'
 ```
 
-### 2. Enviar Imagem com Legenda
+---
 
+## Gerenciamento de Sessões
+
+### 1. Criar/Conectar Sessão
 ```bash
-curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "5511999999999",
-    "type": "image",
-    "mediaUrl": "https://http2.mlstatic.com/D_Q_NP_2X_684905-MLA106055190360_022026-AB.webp",
-    "content": "Tablet Lenovo Tab 10.1¨ Wifi 5 64gb 4gb De Ram Android 14 Cinza \n🔥 *Mega promoção* \n💰 De: R$1.170 por R$ 755,92 \n📉 Desconto de: 35% OFF no Pix\n👉https://mercadolivre.com/sec/2z2DNsW"
-  }'
+curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao \
+  -H "Authorization: Bearer <SEU_TOKEN>"
 ```
 
-### 3. Enviar para Grupo
-
-Para enviar para um grupo, você precisa do ID do grupo que termina com `@g.us`:
-
+### 2. Listar Todas as Sessões
 ```bash
-curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "120363123456789012@g.us",
-    "type": "image",
-    "mediaUrl": "https://example.com/image.jpg",
-    "content": "Mensagem para o grupo!"
-  }'
+curl -X GET http://localhost:3000/whatsapp/sessions \
+  -H "Authorization: Bearer <SEU_TOKEN>"
 ```
 
-### 4. Enviar Vídeo
-
-```bash
-curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "5511999999999",
-    "type": "video",
-    "mediaUrl": "https://example.com/video.mp4",
-    "content": "Confira este vídeo incrível!"
-  }'
-```
-
-### 5. Enviar Áudio
-
-```bash
-curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "5511999999999",
-    "type": "audio",
-    "mediaUrl": "https://example.com/audio.mp3"
-  }'
-```
-
-### 6. Enviar Documento (PDF)
-
-```bash
-curl -X POST http://localhost:3000/whatsapp/sessions/minha-sessao/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "5511999999999",
-    "type": "document",
-    "mediaUrl": "https://example.com/documento.pdf",
-    "fileName": "Contrato.pdf",
-    "content": "Segue o documento solicitado"
-  }'
-```
+---
 
 ## Formatos de Destinatário
+... (restante do arquivo mantido)
 
 ### Número de Telefone
 - Formato: `5511999999999` (código do país + DDD + número)

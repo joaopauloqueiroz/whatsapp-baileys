@@ -7,10 +7,13 @@ import {
     Body,
     HttpException,
     HttpStatus,
+    UseGuards,
 } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('whatsapp')
+@UseGuards(JwtAuthGuard)
 export class WhatsAppController {
     constructor(private readonly whatsappService: WhatsAppService) { }
 
@@ -101,20 +104,44 @@ export class WhatsAppController {
     @Post('sessions/:sessionId/send')
     async sendMessage(
         @Param('sessionId') sessionId: string,
-        @Body() body: { to: string; type: 'text' | 'image' | 'video' | 'audio' | 'document'; content?: string; mediaUrl?: string; fileName?: string },
+        @Body() body: any, // Accept both old and new formats
     ) {
         try {
+            // Support legacy format (phoneNumber, message) and new format (to, type, content, mediaUrl)
+            let to: string;
+            let type: 'text' | 'image' | 'video' | 'audio' | 'document';
+            let content: string | undefined;
+            let mediaUrl: string | undefined;
+            let fileName: string | undefined;
+
+            // Check if it's the old format
+            if (body.phoneNumber && body.message) {
+                // Legacy format
+                to = body.phoneNumber;
+                type = 'text';
+                content = body.message;
+            } else if (body.to && body.type) {
+                // New format
+                to = body.to;
+                type = body.type;
+                content = body.content;
+                mediaUrl = body.mediaUrl;
+                fileName = body.fileName;
+            } else {
+                throw new Error('Invalid request format. Use either {phoneNumber, message} or {to, type, content, mediaUrl}');
+            }
+
             await this.whatsappService.sendMessage(
                 sessionId,
-                body.to,
-                body.type,
-                body.content,
-                body.mediaUrl,
-                body.fileName,
+                to,
+                type,
+                content,
+                mediaUrl,
+                fileName,
             );
             return {
                 success: true,
-                message: `${body.type} message sent successfully`,
+                message: `${type} message sent successfully`,
             };
         } catch (error) {
             throw new HttpException(
