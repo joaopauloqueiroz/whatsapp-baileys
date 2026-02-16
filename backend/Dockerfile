@@ -4,11 +4,15 @@ FROM node:20-alpine AS builder
 WORKDIR /usr/src/app
 
 COPY package*.json ./
+COPY prisma ./prisma/
 
 # Install ALL dependencies (including devDependencies) for build
-RUN npm ci && npm cache clean --force
+RUN npm ci
 
 COPY . .
+
+# Generate Prisma Client for build-time types
+RUN npx prisma generate
 
 RUN npm run build
 
@@ -22,9 +26,13 @@ RUN apk add --no-cache wget
 
 # Copy package files
 COPY package*.json ./
+COPY prisma ./prisma/
 
 # Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production
+
+# Generate Prisma Client for production runtime
+RUN npx prisma generate
 
 # Copy built application from builder
 COPY --from=builder /usr/src/app/dist ./dist
@@ -32,7 +40,7 @@ COPY --from=builder /usr/src/app/dist ./dist
 # Create directories for sessions and logs
 RUN mkdir -p auth_sessions logs
 
-# Expose the API port (will be 3010 in production)
+# Expose the API port
 EXPOSE 3010
 
 # Start in production mode
